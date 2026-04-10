@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>Zeka Arenası PRO</title>
+    <style>
+        :root { --primary: #6c5ce7; --bg: #f0f2f5; --success: #2ecc71; --orange: #e67e22; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); margin: 0; padding: 10px; display: flex; justify-content: center; }
+        .history-box { position: absolute; top: 10px; left: 10px; background: white; padding: 10px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-left: 4px solid var(--orange); font-size: 13px; max-width: 150px; }
+        .main-layout { display: flex; flex-wrap: wrap; gap: 20px; max-width: 1200px; width: 100%; margin-top: 50px; }
+        .game-container { flex: 2; min-width: 450px; background: white; padding: 25px; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+        .chat-container { flex: 1; min-width: 300px; background: white; border-radius: 15px; display: flex; flex-direction: column; height: 650px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        .letter-box { font-size: 45px; background: var(--primary); color: white; padding: 10px 35px; border-radius: 12px; font-weight: bold; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
+        .input-group { display: flex; flex-direction: column; }
+        label { font-size: 11px; font-weight: bold; color: #777; margin-bottom: 5px; text-transform: uppercase; }
+        input { padding: 12px; border: 2px solid #ddd; border-radius: 8px; font-size: 16px; outline: none; transition: 0.3s; }
+        input:focus { border-color: var(--primary); }
+        input:disabled { background: #f9f9f9; color: #888; }
+        .btn { padding: 15px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%; margin-bottom: 10px; font-size: 16px; }
+        .btn-main { background: var(--primary); color: white; }
+        .btn-success { background: var(--success); color: white; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .leaderboard-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        .leaderboard-table th { text-align: left; color: var(--primary); font-size: 13px; border-bottom: 2px solid #eee; }
+        .leaderboard-table td { padding: 10px 0; border-bottom: 1px solid #eee; font-weight: 600; }
+        #chatBox { flex: 1; overflow-y: auto; padding: 15px; background: #fafafa; font-size: 14px; }
+        .chat-input-area { display: flex; padding: 10px; gap: 5px; border-top: 1px solid #eee; }
+        #chatInput { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="history-box">
+    <div style="font-weight:bold; color:var(--orange); margin-bottom:5px;">Harf Geçmişi</div>
+    <div id="letterHistory">-</div>
+</div>
+
+<div class="main-layout">
+    <div class="game-container">
+        <header>
+            <div>Tur: <b id="currentRound" style="color:var(--primary)">0</b></div>
+            <div class="letter-box" id="activeLetter">?</div>
+            <div id="timeLeft" style="color:red; font-weight:bold; font-size: 22px;">90s</div>
+        </header>
+
+        <div class="grid">
+            <div class="input-group"><label>İsim</label><input type="text" class="game-input" disabled></div>
+            <div class="input-group"><label>Şehir</label><input type="text" class="game-input" disabled></div>
+            <div class="input-group"><label>Hayvan</label><input type="text" class="game-input" disabled></div>
+            <div class="input-group"><label>Bitki</label><input type="text" class="game-input" disabled></div>
+            <div class="input-group"><label>Eşya</label><input type="text" class="game-input" disabled></div>
+            <div class="input-group"><label>Artist</label><input type="text" class="game-input" disabled></div>
+        </div>
+        
+        <button id="finishBtn" class="btn btn-success" onclick="autoSubmit()" disabled>ELİ BİTİR VE GÖNDER</button>
+        <button id="letterBtn" class="btn btn-main" onclick="requestNewLetter()">YENİ TURU BAŞLAT</button>
+
+        <table class="leaderboard-table">
+            <thead><tr><th>OYUNCU</th><th style="text-align:right">PUAN</th></tr></thead>
+            <tbody id="leaderboardBody"></tbody>
+        </table>
+    </div>
+
+    <div class="chat-container">
+        <div style="padding:15px; background:var(--primary); color:white; text-align:center; font-weight:bold; border-radius:15px 15px 0 0;">SOHBET</div>
+        <div id="chatBox"></div>
+        <div class="chat-input-area">
+            <input type="text" id="chatInput" placeholder="Mesaj...">
+            <button onclick="sendMsg()" class="btn-main" style="width:auto; margin:0; padding:10px 15px; border-radius:5px; border:none; cursor:pointer;">></button>
+        </div>
+    </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+    const socket = io();
+    let myName = "", isAdmin = false, timerInterval;
+
+    const startSound = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
+    const finishSound = new Audio('https://actions.google.com/sounds/v1/alarms/bugle_tune.ogg');
+
+    // İsim girişi yapılmadan oyuna almıyoruz
+    function askName() {
+        myName = prompt("Oyuncu Adınız:");
+        if (!myName || myName.trim() === "") {
+            askName();
+        } else {
+            socket.emit('registerPlayer', myName);
+        }
+    }
+
+    window.onload = () => {
+        askName();
+        document.getElementById('chatInput').addEventListener('keypress', (e) => { if(e.key === 'Enter') sendMsg(); });
+    };
+
+    socket.on('adminStatus', (status) => {
+        isAdmin = status;
+        const btn = document.getElementById('letterBtn');
+        btn.innerText = "YENİ TURU BAŞLAT (ADMİN)";
+        btn.style.boxShadow = "0 0 15px rgba(108, 92, 231, 0.4)";
+    });
+
+    socket.on('startNewRound', (data) => {
+        try { startSound.play(); } catch(e) {}
+        document.getElementById('activeLetter').innerText = data.letter;
+        document.getElementById('currentRound').innerText = parseInt(document.getElementById('currentRound').innerText) + 1;
+        const inputs = document.querySelectorAll('.game-input');
+        inputs.forEach(i => { i.value = ""; i.disabled = false; });
+        document.getElementById('finishBtn').disabled = false;
+        document.getElementById('letterBtn').disabled = true;
+        startTimer(90);
+    });
+
+    socket.on('roundFinished', (data) => {
+        updateLeaderboardUI(data.allScores);
+        document.getElementById('letterBtn').disabled = false;
+    });
+
+    function requestNewLetter() { socket.emit('requestNewLetter'); }
+
+    function autoSubmit() {
+        try { finishSound.play(); } catch(e) {}
+        const inputs = document.querySelectorAll('.game-input');
+        const answers = {
+            isim: inputs[0].value, sehir: inputs[1].value, hayvan: inputs[2].value,
+            bitki: inputs[3].value, esya: inputs[4].value, artist: inputs[5].value
+        };
+        inputs.forEach(i => i.disabled = true);
+        document.getElementById('finishBtn').disabled = true;
+        socket.emit('submitAnswers', { playerName: myName, answers: answers });
+    }
+
+    function startTimer(s) {
+        clearInterval(timerInterval);
+        let t = s;
+        timerInterval = setInterval(() => {
+            t--;
+            document.getElementById('timeLeft').innerText = t + "s";
+            if(t <= 0 || document.getElementById('finishBtn').disabled) {
+                if(t <= 0) autoSubmit();
+                clearInterval(timerInterval);
+            }
+        }, 1000);
+    }
+
+    function updateLeaderboardUI(scores) {
+        let html = "";
+        Object.entries(scores).sort((a,b) => b[1]-a[1]).forEach(([n, s]) => {
+            html += `<tr><td>${n}</td><td style="text-align:right; font-weight:bold; color:var(--primary)">${s}</td></tr>`;
+        });
+        document.getElementById('leaderboardBody').innerHTML = html;
+    }
+
+    socket.on('updateLeaderboard', s => updateLeaderboardUI(s));
+    socket.on('historyUpdate', h => document.getElementById('letterHistory').innerText = h.join(', '));
+    socket.on('chatMessage', d => {
+        const box = document.getElementById('chatBox');
+        box.innerHTML += `<div><b>${d.name}:</b> ${d.msg}</div>`;
+        box.scrollTop = box.scrollHeight;
+    });
+
+    function sendMsg() {
+        const i = document.getElementById('chatInput');
+        if(i.value) { socket.emit('sendChatMessage', { name: myName, msg: i.value }); i.value = ""; }
+    }
+</script>
+</body>
+</html>
